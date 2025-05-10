@@ -26,6 +26,41 @@ const uint8_t characters[] = {
     0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 };
 
+static SDL_Window *window = NULL;
+static SDL_Renderer *renderer = NULL;
+
+int sdlInit()
+{
+    int i;
+
+    SDL_SetAppMetadata("Mamede CHIP-8 Emulator", "1.0", "com.vmamede.chip8");
+
+    if (!SDL_Init(SDL_INIT_VIDEO))
+    {
+        SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
+        return 1;
+    }
+
+    if (!SDL_CreateWindowAndRenderer("CHIP8", SCREEN_WIDTH * PIXEL_SIZE, SCREEN_HEIGHT * PIXEL_SIZE, 0, &window, &renderer))
+    {
+        SDL_Log("Couldn't create window/renderer: %s", SDL_GetError());
+        return 2;
+    }
+
+    return 0;
+}
+
+void sdlCleanup()
+{
+    SDL_DestroyRenderer(renderer);
+    renderer = NULL;
+
+    SDL_DestroyWindow(window);
+    window = NULL;
+
+    SDL_Quit();
+}
+
 int main(int argc, char *argv[])
 {
     srand(time(NULL));
@@ -39,17 +74,47 @@ int main(int argc, char *argv[])
     emulator.programCounter = PROGRAM_LOAD_ADDRESS;
 
     // Main loop
-    clock_t previousTrigger = clock();
-    while (true)
+    if (sdlInit() > 0)
     {
+        sdlCleanup();
+        return -1;
+    }
+
+    uint64_t previousTick = SDL_GetTicks();
+    uint64_t accumulator = 0;
+    uint64_t timerInterval = 1000 / REFRESH_RATE_HZ;
+
+    bool quit = false;
+    SDL_Event e;
+    while (!quit)
+    {
+        // Timing
+        uint64_t currentTick = SDL_GetTicks();
+        uint64_t delta = currentTick - previousTick;
+        previousTick = SDL_GetTicks();
+
+        accumulator += delta;
+
+        while (SDL_PollEvent(&e) != 0)
+        {
+            if (e.type == SDL_EVENT_QUIT)
+            {
+                quit = true;
+            }
+        }
+
+        updateKeypad(&emulator, &e);
         decodeAndExecute(&emulator);
 
-        clock_t current = clock();
-
-        if (current >= (previousTrigger + CLOCKS_PER_SEC / REFRESH_RATE_HZ))
+        if (accumulator >= timerInterval)
         {
+            SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0x00);
+            SDL_RenderClear(renderer);
+
             // TIMING TRIGGER
             screenDraw(&emulator);
+
+            SDL_RenderPresent(renderer);
 
             // Decrease timers
             if (emulator.delayTimer > 0)
@@ -58,24 +123,28 @@ int main(int argc, char *argv[])
             if (emulator.soundTimer > 0)
                 emulator.soundTimer--;
 
-            previousTrigger = current;
+            accumulator -= timerInterval;
         }
     }
+
+    sdlCleanup();
 
     return 0;
 }
 
 void screenDraw(Emulator *emulator)
 {
-    printf("\e[1;1H\e[2J"); // Clear screen
-
+    SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
     for (int y = 0; y < SCREEN_HEIGHT; y++)
     {
         for (int x = 0; x < SCREEN_WIDTH; x++)
         {
-            printf(emulator->screen[y * SCREEN_WIDTH + x] ? "##" : "  ");
+            if (emulator->screen[y * SCREEN_WIDTH + x])
+            {
+                SDL_FRect rect = {.x = x * PIXEL_SIZE, .y = y * PIXEL_SIZE, .w = PIXEL_SIZE, .h = PIXEL_SIZE};
+                SDL_RenderFillRect(renderer, &rect);
+            }
         }
-        printf("\n");
     }
 }
 
@@ -86,12 +155,12 @@ void screenClear(Emulator *emulator)
 
 int programLoad(char filename[], Emulator *emulator)
 {
-    printf("Opening file %s... \n", filename);
+    SDL_Log("Opening file %s... \n", filename);
     FILE *file = fopen(filename, "rb");
 
     if (file == NULL)
     {
-        printf("Error opening the file!\n");
+        SDL_Log("Error opening the file!\n");
         return 1;
     }
 
@@ -99,6 +168,49 @@ int programLoad(char filename[], Emulator *emulator)
 
     fclose(file);
     return 0;
+}
+
+void updateKeypad(Emulator *emulator, SDL_Event *e)
+{
+    bool keyStatus;
+
+    if (e->type == SDL_EVENT_KEY_DOWN)
+        keyStatus = 1;
+    else if (e->type == SDL_EVENT_KEY_UP)
+        keyStatus = 0;
+    else
+        return;
+
+    SDL_Scancode keysSequence[] = {
+        SDL_SCANCODE_1,
+        SDL_SCANCODE_2,
+        SDL_SCANCODE_3,
+        SDL_SCANCODE_4,
+
+        SDL_SCANCODE_Q,
+        SDL_SCANCODE_W,
+        SDL_SCANCODE_E,
+        SDL_SCANCODE_R,
+
+        SDL_SCANCODE_A,
+        SDL_SCANCODE_S,
+        SDL_SCANCODE_D,
+        SDL_SCANCODE_F,
+
+        SDL_SCANCODE_Z,
+        SDL_SCANCODE_X,
+        SDL_SCANCODE_C,
+        SDL_SCANCODE_V,
+    };
+
+    for (int i = 0; i < 16; i++)
+    {
+        if (e->key.scancode == keysSequence[i])
+        {
+            emulator->keypadStatus[i] = keyStatus;
+            break;
+        }
+    }
 }
 
 void decodeAndExecute(Emulator *emulator)
@@ -115,15 +227,15 @@ void decodeAndExecute(Emulator *emulator)
 #ifdef DEBUG
     screenDraw(emulator);
 
-    printf("Registers: ");
+    SDL_Log("Registers: ");
     for (int i = 0; i < 0xF; i++)
     {
-        printf("%1X: %04X ", i, emulator->vRegisters[i]);
+        SDL_Log("%1X: %04X ", i, emulator->vRegisters[i]);
     }
-    printf("\n");
-    printf("Index register %4X\n", emulator->indexRegister);
-    printf("PC: %04X, Current instruction: %04X, Index: %02X, X: %02X, Y: %02X, N: %02X, NN: %02X, NNN: %04X\n",
-           emulator->programCounter, instruction, index, vX, vY, n, nn, nnn);
+    SDL_Log("\n");
+    SDL_Log("Index register %4X\n", emulator->indexRegister);
+    SDL_Log("PC: %04X, Current instruction: %04X, Index: %02X, X: %02X, Y: %02X, N: %02X, NN: %02X, NNN: %04X\n",
+            emulator->programCounter, instruction, index, vX, vY, n, nn, nnn);
     getchar();
 #endif
 
