@@ -4,19 +4,19 @@
 
 ## Features
 
-- [ ] Interpreter for CHIP-8 instructions
-- [ ] 64x32 monochrome display
+- [x] Interpreter for CHIP-8 instructions
+- [x] 64x32 monochrome display
 - [ ] Hex-based keypad input
-- [ ] Memory and register management
-- [ ] Basic ROM loading
-- [ ] Sound and timers
+- [x] Memory and register management
+- [x] Basic ROM loading
+- [x] Sound and timers
 
 ## Getting Started
 
 Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/mamede_chip8.git
+git clone https://github.com/vmamede/mamede_chip8.git
 cd mamede_chip8
 ```
 
