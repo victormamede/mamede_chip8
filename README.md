@@ -6,7 +6,7 @@
 
 - [x] Interpreter for CHIP-8 instructions
 - [x] 64x32 monochrome display
-- [ ] Hex-based keypad input
+- [x] Hex-based keypad input
 - [x] Memory and register management
 - [x] Basic ROM loading
 - [x] Sound and timers
@@ -23,7 +23,7 @@ cd mamede_chip8
 Compile the project:
 
 ```bash
-gcc -o chip8 main.c
+gcc -lSDL3 -o chip8 main.c
 ```
 
 Run a ROM:
@@ -31,6 +31,13 @@ Run a ROM:
 ```bash
 ./chip8 path/to/rom.ch8
 ```
+
+## Dependencies
+
+This project uses SDL3 (Simple DirectMedia Layer 3) for graphics, input, and sound handling. Make sure SDL3 is installed on your system before compiling.
+
+On Linux, you can install it via your package manager or build from source.
+On Windows, you'll have to link it yourself
 
 ## Resources
 

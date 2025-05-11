@@ -123,7 +123,7 @@ int main(int argc, char *argv[])
         }
 
         // SDL_Delay(16);
-        SDL_DelayNS(1000 * 500);
+        SDL_DelayNS(1000 * 1000);
     }
 
     sdlCleanup();
