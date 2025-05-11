@@ -4,6 +4,8 @@
 
 #include <SDL3/SDL.h>
 
+#define DEBUG
+
 #define MEMORY_SIZE 4096
 #define STACK_SIZE 4096
 
@@ -16,6 +18,9 @@
 
 #define FONT_LOAD_ADDRESS 0x050
 #define PROGRAM_LOAD_ADDRESS 0x200
+
+#define BEEP_AMPLITUDE = 28000;
+#define BEEP_FREQUENCY = 440;
 
 typedef struct Emulator
 {
@@ -30,6 +35,7 @@ typedef struct Emulator
 
     uint8_t vRegisters[16];
 
+    bool previousKeypadStatus[16];
     bool keypadStatus[16];
     bool screen[SCREEN_WIDTH * SCREEN_HEIGHT];
 } Emulator;

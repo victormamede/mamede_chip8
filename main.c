@@ -63,8 +63,6 @@ void sdlCleanup()
 
 int main(int argc, char *argv[])
 {
-    srand(time(NULL));
-
     // Initialize emulator
     Emulator emulator = {0};
 
@@ -101,16 +99,14 @@ int main(int argc, char *argv[])
             {
                 quit = true;
             }
+
+            updateKeypad(&emulator, &e);
         }
 
-        updateKeypad(&emulator, &e);
         decodeAndExecute(&emulator);
 
         if (accumulator >= timerInterval)
         {
-            SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0x00);
-            SDL_RenderClear(renderer);
-
             // TIMING TRIGGER
             screenDraw(&emulator);
 
@@ -125,6 +121,9 @@ int main(int argc, char *argv[])
 
             accumulator -= timerInterval;
         }
+
+        // SDL_Delay(16);
+        SDL_DelayNS(1000 * 500);
     }
 
     sdlCleanup();
@@ -134,6 +133,16 @@ int main(int argc, char *argv[])
 
 void screenDraw(Emulator *emulator)
 {
+    if (emulator->soundTimer > 0)
+    {
+        SDL_SetRenderDrawColor(renderer, 0xA0, 0xA0, 0xA0, 0xFF);
+    }
+    else
+    {
+        SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xFF);
+    }
+    SDL_RenderClear(renderer);
+
     SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
     for (int y = 0; y < SCREEN_HEIGHT; y++)
     {
@@ -155,12 +164,12 @@ void screenClear(Emulator *emulator)
 
 int programLoad(char filename[], Emulator *emulator)
 {
-    SDL_Log("Opening file %s... \n", filename);
+    SDL_Log("Opening file %s... ", filename);
     FILE *file = fopen(filename, "rb");
 
     if (file == NULL)
     {
-        SDL_Log("Error opening the file!\n");
+        SDL_Log("Error opening the file!");
         return 1;
     }
 
@@ -182,33 +191,30 @@ void updateKeypad(Emulator *emulator, SDL_Event *e)
         return;
 
     SDL_Scancode keysSequence[] = {
+        SDL_SCANCODE_X,
         SDL_SCANCODE_1,
         SDL_SCANCODE_2,
         SDL_SCANCODE_3,
-        SDL_SCANCODE_4,
-
         SDL_SCANCODE_Q,
         SDL_SCANCODE_W,
         SDL_SCANCODE_E,
-        SDL_SCANCODE_R,
-
         SDL_SCANCODE_A,
         SDL_SCANCODE_S,
         SDL_SCANCODE_D,
-        SDL_SCANCODE_F,
-
         SDL_SCANCODE_Z,
-        SDL_SCANCODE_X,
         SDL_SCANCODE_C,
+        SDL_SCANCODE_4,
+        SDL_SCANCODE_R,
+        SDL_SCANCODE_F,
         SDL_SCANCODE_V,
     };
 
     for (int i = 0; i < 16; i++)
     {
+        emulator->previousKeypadStatus[i] = emulator->keypadStatus[i];
         if (e->key.scancode == keysSequence[i])
         {
             emulator->keypadStatus[i] = keyStatus;
-            break;
         }
     }
 }
@@ -228,19 +234,21 @@ void decodeAndExecute(Emulator *emulator)
     screenDraw(emulator);
 
     SDL_Log("Registers: ");
-    for (int i = 0; i < 0xF; i++)
+    for (int i = 0; i < 16; i++)
     {
         SDL_Log("%1X: %04X ", i, emulator->vRegisters[i]);
     }
-    SDL_Log("\n");
-    SDL_Log("Index register %4X\n", emulator->indexRegister);
-    SDL_Log("PC: %04X, Current instruction: %04X, Index: %02X, X: %02X, Y: %02X, N: %02X, NN: %02X, NNN: %04X\n",
+    SDL_Log("Keypad: ");
+    for (int i = 0; i < 16; i++)
+    {
+        SDL_Log("%1X: %04X ", i, emulator->keypadStatus[i]);
+    }
+    SDL_Log("Index register %4X", emulator->indexRegister);
+    SDL_Log("PC: %04X, Current instruction: %04X, Index: %02X, X: %02X, Y: %02X, N: %02X, NN: %02X, NNN: %04X",
             emulator->programCounter, instruction, index, vX, vY, n, nn, nnn);
-    getchar();
 #endif
 
     emulator->programCounter += 2;
-
     switch (index)
     {
     case 0x0:
@@ -320,8 +328,11 @@ void decodeAndExecute(Emulator *emulator)
     case 0xA:
         emulator->indexRegister = nnn;
         break;
+    case 0xB:
+        emulator->programCounter = nnn + emulator->vRegisters[0];
+        break;
     case 0xC:
-        int r = rand();
+        Sint32 r = SDL_rand(256);
         emulator->vRegisters[vX] = r & nn;
         break;
     case 0xD:
@@ -360,10 +371,29 @@ void decodeAndExecute(Emulator *emulator)
         }
 
         break;
+    case 0xE:
+        if (nn == 0x9E)
+        {
+            if (emulator->keypadStatus[emulator->vRegisters[vX]])
+                emulator->programCounter += 2;
+        }
+        else if (nn == 0xA1)
+        {
+            if (!emulator->keypadStatus[emulator->vRegisters[vX]])
+                emulator->programCounter += 2;
+        }
+
+        break;
     case 0xF:
         if (nn == 0x07)
         {
             emulator->vRegisters[vX] = emulator->delayTimer;
+        }
+        if (nn == 0x0A)
+        {
+            if (emulator->previousKeypadStatus[emulator->vRegisters[vX]] && !emulator->keypadStatus[emulator->vRegisters[vX]])
+
+                emulator->programCounter -= 2;
         }
         else if (nn == 0x15)
         {
@@ -378,19 +408,10 @@ void decodeAndExecute(Emulator *emulator)
             // https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#fx1e-add-to-index
             emulator->indexRegister += emulator->vRegisters[vX];
         }
-        else if (nn == 0x55)
+        else if (nn == 0x29)
         {
-            for (int i = 0; i <= vX; i++)
-            {
-                emulator->memory[emulator->indexRegister + i] = emulator->vRegisters[i];
-            }
-        }
-        else if (nn == 0x65)
-        {
-            for (int i = 0; i <= vX; i++)
-            {
-                emulator->vRegisters[i] = emulator->memory[emulator->indexRegister + i];
-            }
+            // Test this
+            emulator->indexRegister = FONT_LOAD_ADDRESS + vX * 8;
         }
         else if (nn == 0x33)
         {
@@ -404,6 +425,20 @@ void decodeAndExecute(Emulator *emulator)
             emulator->memory[index] = i2;
             emulator->memory[index + 1] = i1;
             emulator->memory[index + 2] = i0;
+        }
+        else if (nn == 0x55)
+        {
+            for (int i = 0; i <= vX; i++)
+            {
+                emulator->memory[emulator->indexRegister + i] = emulator->vRegisters[i];
+            }
+        }
+        else if (nn == 0x65)
+        {
+            for (int i = 0; i <= vX; i++)
+            {
+                emulator->vRegisters[i] = emulator->memory[emulator->indexRegister + i];
+            }
         }
         break;
     default:
